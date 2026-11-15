@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Saledock B2B Product Data Skimmer & Importer",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "version_name": "v1.0.2 (Build 2026.11.15.4)",
   "description": "Open-source B2B catalogue crawler, auto-pack/length splitter, VAT+margin pricing calculator, audit logger, and Saledock back-office OOSP/Publish automation tool.",
   "author": "Benjamin Goddard & Gemini",
