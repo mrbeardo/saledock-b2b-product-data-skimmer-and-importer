@@ -1,5 +1,5 @@
 // Saledock B2B Product Data Skimmer & Importer - Background Service Worker
-// Version: v1.0.1 (Build 2026.11.15.2)
+// Version: v1.0
 // License: MIT | Co-authored by Benjamin Goddard & Gemini
 
 const DB_NAME = "SaledockSkimmerDB";
