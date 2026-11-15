@@ -1,5 +1,5 @@
 // Saledock B2B Product Data Skimmer & Importer - Background Service Worker
-// Version: v1.0
+// Version: v1.0.2-step1 (Build 2026.11.15.3)
 // License: MIT | Co-authored by Benjamin Goddard & Gemini
 
 const DB_NAME = "SaledockSkimmerDB";
@@ -38,16 +38,113 @@ function cleanBarcode(raw) {
   return str.replace(/[^0-9A-Za-z-]/g, "");
 }
 
-// Split wholesale multi-packs into single retail units when pack size > 1
+// Step 1: Smart Wholesale Pack, Length & Volume Detector
+function detectWholesaleUnit(title = "", description = "", sku = "", manualOverride = 1) {
+  const manualQty = Math.max(1, parseInt(manualOverride || "1", 10));
+  if (manualQty > 1) {
+    return { qty: manualQty, unitType: "Manual Override", ruleMatched: `Manual (${manualQty})` };
+  }
+
+  const text = `${title} ${description}`.replace(/\s+/g, " ").trim();
+  const cleanSku = String(sku || "").trim().toUpperCase();
+
+  // 1. Explicit Box / Pack / Jar / Bag / Card / Strip / Roll counts
+  // Matches: (50/BOX), 144/Box, Box of 10, Pack of 25, 10 pack, 10-Pack, 10pk, Bag of 100, Jar of 50, Card of 10
+  const boxPackPatterns = [
+    /\((\d+)\s*\/\s*(?:box|bx|pack|pk|bag|jar|card|strip|roll)\)/i,
+    /\b(\d+)\s*\/\s*(?:box|bx|pack|pk|bag|jar)\b/i,
+    /\b(?:box|pack|bag|jar|card|strip|roll|set)\s+of\s+(\d+)\b/i,
+    /\b(\d+)\s*[-]?\s*(?:pack|pk|pcs|pieces|per\s+box|per\s+pack)\b/i,
+    /\bqty[:\s]*(\d+)\b/i
+  ];
+  for (const regex of boxPackPatterns) {
+    const match = text.match(regex);
+    if (match && parseInt(match[1], 10) > 1) {
+      const qty = parseInt(match[1], 10);
+      return { qty, unitType: "Multi-Pack", ruleMatched: match[0] };
+    }
+  }
+
+  // 2. Multiplier shorthand (e.g., "x 20", "x25", "10x", "(10)") - avoids tyre/wheel dimensions like 26 x 1.75 or 700 x 28c
+  const multMatch = text.match(/(?:^|\s|\()x\s*(\d{2,3})(?:\)|\s|$)/i) || text.match(/\b(\d{2,3})x(?:\s|$)/i);
+  if (multMatch && parseInt(multMatch[1], 10) > 1) {
+    const qty = parseInt(multMatch[1], 10);
+    return { qty, unitType: "Multi-Pack", ruleMatched: multMatch[0].trim() };
+  }
+
+  // 3. Trade "Gross" (144 units, common for spokes/nipples)
+  if (/\bgross\b/i.test(text) && !/\bgross\s+weight\b/i.test(text)) {
+    return { qty: 144, unitType: "Gross Box", ruleMatched: "Gross (144)" };
+  }
+
+  // 4. Bulk Cable / Housing / Rim Tape Lengths in Metres (ignores "mm" like 40mm or 180mm)
+  // Matches: 10m, 30m, 50m, 100m, 25m Reel, 30m Coil
+  const metreMatch = text.match(/\b(\d+(?:\.\d+)?)\s*m(?:\s+(?:reel|coil|roll|box|length))?\b/i);
+  if (metreMatch && !/\b\d+\s*mm\b/i.test(metreMatch[0])) {
+    const metres = parseFloat(metreMatch[1]);
+    if (metres >= 5) {
+      return { qty: metres, unitType: "Per Metre", ruleMatched: `${metres}m` };
+    }
+  }
+
+  // 5. Workshop Fluids & Pastes in Litres / Millilitres (splits into 100ml workshop/retail units)
+  // Matches: 1L, 2L, 5L, 1000ml, 2000ml, 5000ml
+  const litreMatch = text.match(/\b(\d+(?:\.\d+)?)\s*(?:l|ltr|litre|litres)\b/i);
+  if (litreMatch) {
+    const litres = parseFloat(litreMatch[1]);
+    if (litres >= 1) {
+      const unitsOf100ml = Math.round(litres * 10);
+      return { qty: unitsOf100ml, unitType: "Per 100ml", ruleMatched: `${litres}L (${unitsOf100ml}x100ml)` };
+    }
+  }
+  const mlMatch = text.match(/\b(\d{4,5})\s*ml\b/i);
+  if (mlMatch) {
+    const ml = parseInt(mlMatch[1], 10);
+    if (ml >= 1000) {
+      const unitsOf100ml = Math.round(ml / 100);
+      return { qty: unitsOf100ml, unitType: "Per 100ml", ruleMatched: `${ml}ml (${unitsOf100ml}x100ml)` };
+    }
+  }
+
+  // 6. Fallback SKU Suffix Check (e.g., TUES20SBX without explicit count -> flags for review)
+  if (/BX$/.test(cleanSku)) {
+    return { qty: 1, unitType: "Box SKU (Verify Qty)", ruleMatched: `SKU ${cleanSku}` };
+  }
+
+  return { qty: 1, unitType: "Single Unit", ruleMatched: "Default (1)" };
+}
+
+// Split wholesale multi-packs, lengths, or bulk volumes into single retail/workshop units
 function normalizePackItem(item) {
-  const packQty = Math.max(1, parseInt(item.packQty || "1", 10));
-  const unitCost = packQty > 1 ? +(Number(item.cost || 0) / packQty).toFixed(2) : Number(item.cost || 0);
-  const unitRrp = packQty > 1 ? +(Number(item.rrp || 0) / packQty).toFixed(2) : Number(item.rrp || 0);
+  const detected = detectWholesaleUnit(item.title, item.webDescription, item.sku, item.packQty);
+  const packQty = detected.qty;
+  const rawCost = Number(item.cost || 0);
+  const rawRrp = Number(item.rrp || 0);
+
+  const unitCost = packQty > 1 ? +(rawCost / packQty).toFixed(2) : rawCost;
+  const unitRrp = packQty > 1 && rawRrp > 0 ? +(rawRrp / packQty).toFixed(2) : rawRrp;
+
+  let normalizedTitle = String(item.title || "").trim();
+  if (detected.unitType === "Per Metre" && !/\[per metre\]/i.test(normalizedTitle)) {
+    normalizedTitle += " [Per Metre]";
+  } else if (detected.unitType === "Per 100ml" && !/\[per 100ml\]/i.test(normalizedTitle)) {
+    normalizedTitle += " [Per 100ml]";
+  }
+
+  const autoTags = [item.tags];
+  if (packQty > 1) autoTags.push(`Split-${detected.unitType.replace(/\s+/g, "-")}`);
+
   return {
     ...item,
+    title: normalizedTitle,
     barcode: cleanBarcode(item.barcode),
+    originalPackCost: rawCost,
+    detectedPackQty: packQty,
+    detectedUnitType: detected.unitType,
+    detectedRuleMatched: detected.ruleMatched,
     cost: unitCost,
     rrp: unitRrp,
+    tags: autoTags.filter(Boolean).join(" | "),
     packSplitApplied: packQty > 1
   };
 }
