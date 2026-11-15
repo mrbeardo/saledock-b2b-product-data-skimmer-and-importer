@@ -1,5 +1,5 @@
 // Saledock B2B Product Data Skimmer & Importer - Popup Controller
-// Version: v1.0.3 (Build 2026.11.15.5)
+// Version: v1.0.4 (Build 2026.11.15.6)
 // License: MIT | Co-authored by Benjamin Goddard & Gemini
 
 const statusEl = document.getElementById("status");
@@ -78,7 +78,7 @@ customMarginInput.addEventListener("change", () => {
   chrome.storage.local.set({ customMarginPct: customMarginInput.value });
 });
 
-// 1. Skim active B2B supplier tab (auto-selects Ison Table Adapter, Cycle Division WooCommerce, or Generic)
+// 1. Skim active B2B supplier tab
 document.getElementById("btnSkimPage").addEventListener("click", async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab || !tab.id) return setStatus("No active browser tab found.");
@@ -102,31 +102,76 @@ document.getElementById("btnSkimPage").addEventListener("click", async () => {
         const host = window.location.hostname.toLowerCase();
         const extracted = [];
 
-        // Read breadcrumbs for Category / SubCategory if available
         const crumbs = Array.from(document.querySelectorAll("nav.breadcrumbs a, .woocommerce-breadcrumb a, .breadcrumb a"))
           .map((a) => a.textContent.trim())
           .filter((t) => t && t.toLowerCase() !== "home");
         const activeCategory = crumbs[0] || "";
         const activeSubCategory = document.querySelector("h1.heading, .woocommerce-products-header__title, h1")?.textContent?.trim() || crumbs[1] || "";
 
-        // Adapter 1: Ison Distribution Table Layout (tr / td rows)
-        if (host.includes("ison-distribution") || document.querySelector("table tr td small strong, table tr td img[src*='complete']")) {
+        // Adapter 1A: Ison Distribution - Individual Product Page (e.g. product.php?part=...)
+        if (host.includes("ison-distribution") && window.location.pathname.includes("product.php")) {
+          const urlParams = new URLSearchParams(window.location.search);
+          const sku = urlParams.get("part") || document.querySelector("h1, .product-title")?.textContent?.trim() || "";
+          const title = document.querySelector("h1, .product-name, h2")?.textContent?.trim() || "";
+          
+          // Grab prices and description from page text or table elements
+          const bodyText = document.body.innerText;
+          let netPrice = 0;
+          let officialRrp = 0;
+
+          // Search for currency patterns on the page if specific elements aren't matched
+          const prices = Array.from(document.querySelectorAll("strong, span, td"))
+            .map(el => el.textContent.trim())
+            .filter(t => /^£\d+\.\d{2}$/.test(t))
+            .map(t => parseFloat(t.replace("£", "")));
+
+          if (prices.length > 0) {
+            // Usually the highest is RRP and lower are trade prices
+            prices.sort((a, b) => b - a);
+            officialRrp = prices[0] || 0;
+            netPrice = prices[prices.length - 1] || prices[0] || 0;
+          }
+
+          const imgEl = document.querySelector("img[src*='complete/'], img[src*='product/'], .product-image img");
+          const imgUrl = imgEl ? imgEl.src : "";
+
+          if (title && sku) {
+            extracted.push({
+              sku,
+              barcode: "",
+              title,
+              brand: "",
+              category: activeCategory,
+              subCategory: activeSubCategory,
+              supplier: supplierLabel,
+              cost: netPrice,
+              rrp: officialRrp,
+              stock: 1,
+              packQty: defaultPack,
+              webDescription: document.querySelector(".product-description, p")?.textContent?.trim() || "",
+              images: imgUrl ? [imgUrl] : [],
+              visible: true
+            });
+          }
+        }
+
+        // Adapter 1B: Ison Distribution - Table List Layout (tr / td rows)
+        if (extracted.length === 0 && (host.includes("ison-distribution") || document.querySelector("table tr td small strong, table tr td img[src*='complete']"))) {
           const rows = document.querySelectorAll("table tr");
           rows.forEach((row) => {
             const cells = row.querySelectorAll("td");
             if (cells.length >= 8) {
-              const cell0 = cells[0]; // Title, specs, HS code
-              const cell1 = cells[1]; // Colour/Option 1
-              const cell2 = cells[2]; // Size/Option 2
-              const cell4 = cells[4]; // SKU (e.g. PD5DARAS)
-              const cell5 = cells[5]; // Stock check icon
-              const cell6 = cells[6]; // RRP (e.g. £189.99)
-              const cell7 = cells[7]; // Trade Price 1 (e.g. £118.11)
-              const cell8 = cells[8]; // Trade Price 2 / Stockist if present (e.g. £102.70)
-              const cellImg = cells[11] || cells[cells.length - 1]; // Image thumbnail/link
+              const cell0 = cells[0];
+              const cell1 = cells[1];
+              const cell2 = cells[2];
+              const cell4 = cells[4];
+              const cell5 = cells[5];
+              const cell6 = cells[6];
+              const cell7 = cells[7];
+              const cell8 = cells[8];
+              const cellImg = cells[11] || cells[cells.length - 1];
 
               const fullText = cell0?.textContent?.trim() || "";
-              // Extract main title (everything before the first <br> or specs)
               const titleNode = cell0?.querySelector("small");
               const title = titleNode ? titleNode.textContent.split(",")[0].trim() || titleNode.textContent.trim() : fullText.split("\n")[0].trim();
               const sku = cell4?.querySelector("small")?.textContent?.trim() || cell4?.textContent?.trim() || "";
@@ -137,13 +182,10 @@ document.getElementById("btnSkimPage").addEventListener("click", async () => {
               const rrpText = cell6?.textContent || "0";
               const officialRrp = parseFloat(rrpText.replace(/[^0-9.]/g, "")) || 0;
 
-              // Use best net trade price available (cell 8 if present and valid, otherwise cell 7)
               const priceCell = (cell8 && cell8.textContent.includes("£")) ? cell8 : cell7;
               const netPrice = parseFloat((priceCell?.textContent || "0").replace(/[^0-9.]/g, "")) || 0;
 
-              const inStock = cell5?.querySelector(".fa-check, .text-success") !== null ||
-                cell5?.textContent?.toLowerCase().includes("in stock") || true;
-
+              const inStock = cell5?.querySelector(".fa-check, .text-success") !== null || true;
               const imgUrl = cellImg?.querySelector("img")?.src || cellImg?.querySelector("a")?.href || "";
 
               if (title && sku && netPrice > 0) {
