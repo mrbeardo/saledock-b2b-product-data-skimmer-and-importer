@@ -1,0 +1,11 @@
+# Saledock & B2B CSV Exports
+*.csv
+ProductExport*
+StockExport*
+ProductImport*
+
+# Local Configurations & Secrets
+config.local.js
+*.env
+.DS_Store
+Thumbs.db
