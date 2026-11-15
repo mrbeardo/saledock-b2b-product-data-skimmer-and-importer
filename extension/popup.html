@@ -1,1 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Saledock B2B Product Data Skimmer &amp; Importer</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      width: 340px;
+      margin: 0;
+      padding: 14px;
+      background: #0f172a;
+      color: #f8fafc;
+    }
+    h1 {
+      font-size: 14px;
+      margin: 0;
+      color: #38bdf8;
+    }
+    .subtext {
+      font-size: 11px;
+      color: #94a3b8;
+      margin-bottom: 12px;
+    }
+    .card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      padding: 10px;
+      margin-bottom: 10px;
+    }
+    label {
+      display: block;
+      font-size: 11px;
+      color: #cbd5e1;
+      margin-bottom: 4px;
+    }
+    input[type="text"], input[type="number"] {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 6px 8px;
+      border-radius: 4px;
+      border: 1px solid #475569;
+      background: #0f172a;
+      color: #f8fafc;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+    button {
+      width: 100%;
+      padding: 8px;
+      border: none;
+      border-radius: 5px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-bottom: 6px;
+    }
+    .btn-primary { background: #0284c7; color: #fff; }
+    .btn-primary:hover { background: #0369a1; }
+    .btn-success { background: #16a34a; color: #fff; }
+    .btn-success:hover { background: #15803d; }
+    .btn-amber { background: #d97706; color: #fff; }
+    .btn-amber:hover { background: #b45309; }
+    .btn-danger { background: #334155; color: #cbd5e1; }
+    .btn-danger:hover { background: #dc2626; color: #fff; }
+    #status {
+      font-size: 11px;
+      color: #a7f3d0;
+      min-height: 16px;
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Saledock B2B Skimmer &amp; Importer</h1>
+  <div class="subtext">v1.0.0 (Build 2026.11.15.1) &bull; MIT Open Source</div>
 
+  <div class="card">
+    <label for="supplierName">Supplier Label (for Saledock CSV)</label>
+    <input type="text" id="supplierName" placeholder="e.g. Demo Wholesale Ltd" />
+
+    <label for="defaultPackQty">Wholesale Pack Quantity (1 = single unit)</label>
+    <input type="number" id="defaultPackQty" value="1" min="1" />
+
+    <button id="btnSkimPage" class="btn-primary">Skim Active B2B Catalogue Tab</button>
+    <button id="btnExportCsv" class="btn-success">Export Saledock 33-Col CSV (<span id="itemCount">0</span>)</button>
+  </div>
+
+  <div class="card">
+    <label>Saledock Back-Office Automation</label>
+    <button id="btnRunOospMacro" class="btn-amber">Run OOSP &amp; Publish Macro on Saledock Tab</button>
+  </div>
+
+  <button id="btnClear" class="btn-danger">Clear Skimmed Queue</button>
+  <div id="status">Ready.</div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
