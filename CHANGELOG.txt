@@ -1,0 +1,59 @@
+================================================================================
+
+SALEDOCK B2B PRODUCT DATA SKIMMER & IMPORTER - CHANGELOG
+
+Repository: https://github.com/mrbeardo/saledock-b2b-product-data-skimmer-and-importer
+
+================================================================================
+
+
+
+[v1.0.1] - 2026-11-15
+
+---------------------
+
+ADDED:
+
+- Automatic Export Tagging: Added a `Tags` column to the Saledock CSV export 
+
+  (`buildSaledockCSV` in `extension/background.js`) that automatically appends 
+
+  `B2B-Skimmer` to every exported product row for easy filtering and bulk 
+
+  management in the Saledock back office.
+
+
+
+CHANGED:
+
+- Pipe-Delimited Multi-Value Formatting: Updated multi-image and multi-tag 
+
+  fields to join using Saledock's `" | "` (space-pipe-space) delimiter standard.
+
+
+
+[v1.0.0] - 2026-11-15
+
+---------------------
+
+INITIAL RELEASE:
+
+- Manifest V3 Chrome/Edge extension architecture.
+
+- Local IndexedDB storage engine (`SaledockSkimmerDB`) for high-capacity 
+
+  product queuing and deduplication.
+
+- Dual-mode B2B product extractor supporting Schema.org JSON-LD blocks and 
+
+  generic DOM product card fallbacks.
+
+- Automated scientific-notation barcode repair and wholesale multi-pack unit 
+
+  cost/RRP splitting.
+
+- Saledock `ProductImportTemplate` CSV generator and back-office OOSP/Publish 
+
+  toggle macro.
+
+================================================================================
