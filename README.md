@@ -1,11 +1,17 @@
 # Saledock B2B Product Data Skimmer & Importer
-**v1.0.0 (Build 2026.11.15.1)**
+**v1.0.0 (Build 2026.11.15.2)**
 
 An open-source Chrome and Edge (Manifest V3) extension built for **Saledock / Celerant ONE** retailers to automate B2B supplier catalogue extraction, CSV cleanup, variant consolidation, and back-office publishing to the Saledock / Celerant One platform.
 
 ## Support This Project
 
 If this extension saves you time managing your Saledock catalogue, you can support ongoing development and maintenance via [PayPal.Me](https://www.paypal.com/paypalme/leelicycles). Every contribution is greatly appreciated!
+
+## Changelog
+
+### v1.0.1 (2026-11-15)
+* **Automatic Export Tagging:** Added a `Tags` column to the Saledock CSV export (`buildSaledockCSV`) that automatically appends `B2B-Skimmer` to every exported product row for easy filtering and bulk management in the Saledock back office.
+* **Pipe-Delimited Multi-Value Formatting:** Updated multi-image and multi-tag fields to join using Saledock's `" | "` delimiter standard.
 
 ## Disclaimer
 
