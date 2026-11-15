@@ -1,13 +1,14 @@
 // Saledock B2B Product Data Skimmer & Importer - Background Service Worker
-// Version: v1.0.2-step1 (Build 2026.11.15.3)
+// Version: v1.0.2-step2 (Build 2026.11.15.4)
 // License: MIT | Co-authored by Benjamin Goddard & Gemini
 
 const DB_NAME = "SaledockSkimmerDB";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_SKIMMED = "skimmedProducts";
 const STORE_EXISTING = "existingCatalog";
+const STORE_AUDIT = "auditLogs";
 
-// Open IndexedDB for high-capacity CSV deduplication & skimmed storage
+// Open IndexedDB for high-capacity CSV deduplication, skimmed storage & audit logs
 function openDB() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
@@ -18,6 +19,9 @@ function openDB() {
       }
       if (!db.objectStoreNames.contains(STORE_EXISTING)) {
         db.createObjectStore(STORE_EXISTING, { keyPath: "sku" });
+      }
+      if (!db.objectStoreNames.contains(STORE_AUDIT)) {
+        db.createObjectStore(STORE_AUDIT, { keyPath: "id", autoIncrement: true });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -48,8 +52,6 @@ function detectWholesaleUnit(title = "", description = "", sku = "", manualOverr
   const text = `${title} ${description}`.replace(/\s+/g, " ").trim();
   const cleanSku = String(sku || "").trim().toUpperCase();
 
-  // 1. Explicit Box / Pack / Jar / Bag / Card / Strip / Roll counts
-  // Matches: (50/BOX), 144/Box, Box of 10, Pack of 25, 10 pack, 10-Pack, 10pk, Bag of 100, Jar of 50, Card of 10
   const boxPackPatterns = [
     /\((\d+)\s*\/\s*(?:box|bx|pack|pk|bag|jar|card|strip|roll)\)/i,
     /\b(\d+)\s*\/\s*(?:box|bx|pack|pk|bag|jar)\b/i,
@@ -65,20 +67,16 @@ function detectWholesaleUnit(title = "", description = "", sku = "", manualOverr
     }
   }
 
-  // 2. Multiplier shorthand (e.g., "x 20", "x25", "10x", "(10)") - avoids tyre/wheel dimensions like 26 x 1.75 or 700 x 28c
   const multMatch = text.match(/(?:^|\s|\()x\s*(\d{2,3})(?:\)|\s|$)/i) || text.match(/\b(\d{2,3})x(?:\s|$)/i);
   if (multMatch && parseInt(multMatch[1], 10) > 1) {
     const qty = parseInt(multMatch[1], 10);
     return { qty, unitType: "Multi-Pack", ruleMatched: multMatch[0].trim() };
   }
 
-  // 3. Trade "Gross" (144 units, common for spokes/nipples)
   if (/\bgross\b/i.test(text) && !/\bgross\s+weight\b/i.test(text)) {
     return { qty: 144, unitType: "Gross Box", ruleMatched: "Gross (144)" };
   }
 
-  // 4. Bulk Cable / Housing / Rim Tape Lengths in Metres (ignores "mm" like 40mm or 180mm)
-  // Matches: 10m, 30m, 50m, 100m, 25m Reel, 30m Coil
   const metreMatch = text.match(/\b(\d+(?:\.\d+)?)\s*m(?:\s+(?:reel|coil|roll|box|length))?\b/i);
   if (metreMatch && !/\b\d+\s*mm\b/i.test(metreMatch[0])) {
     const metres = parseFloat(metreMatch[1]);
@@ -87,8 +85,6 @@ function detectWholesaleUnit(title = "", description = "", sku = "", manualOverr
     }
   }
 
-  // 5. Workshop Fluids & Pastes in Litres / Millilitres (splits into 100ml workshop/retail units)
-  // Matches: 1L, 2L, 5L, 1000ml, 2000ml, 5000ml
   const litreMatch = text.match(/\b(\d+(?:\.\d+)?)\s*(?:l|ltr|litre|litres)\b/i);
   if (litreMatch) {
     const litres = parseFloat(litreMatch[1]);
@@ -106,7 +102,6 @@ function detectWholesaleUnit(title = "", description = "", sku = "", manualOverr
     }
   }
 
-  // 6. Fallback SKU Suffix Check (e.g., TUES20SBX without explicit count -> flags for review)
   if (/BX$/.test(cleanSku)) {
     return { qty: 1, unitType: "Box SKU (Verify Qty)", ruleMatched: `SKU ${cleanSku}` };
   }
@@ -114,15 +109,61 @@ function detectWholesaleUnit(title = "", description = "", sku = "", manualOverr
   return { qty: 1, unitType: "Single Unit", ruleMatched: "Default (1)" };
 }
 
-// Split wholesale multi-packs, lengths, or bulk volumes into single retail/workshop units
-function normalizePackItem(item) {
+// Step 2A: Tiered Recommended Markup (33% to 56%) based on single-unit Net Trade Price
+function getRecommendedMarkupPercent(unitNetCost) {
+  if (unitNetCost <= 0) return 50;
+  if (unitNetCost < 3.0) return 56;
+  if (unitNetCost < 10.0) return 50;
+  if (unitNetCost < 30.0) return 42;
+  if (unitNetCost < 75.0) return 36;
+  return 33;
+}
+
+// Step 2B: Calculate Retail Price only if distributor RRP is missing/zero
+// Formula: (Net Trade Cost * 1.20 VAT) * (1 + Markup% / 100)
+function calculatePricing(unitNetCost, rawUnitRrp, marginOptions = {}) {
+  const vatRate = 1.20;
+  const costIncVat = +(unitNetCost * vatRate).toFixed(2);
+  const recommendedMarkup = getRecommendedMarkupPercent(unitNetCost);
+
+  const customMarkup = Number(marginOptions.customMarkup);
+  const useRecommended = marginOptions.useRecommended !== false || Number.isNaN(customMarkup) || customMarkup <= 0;
+  const appliedMarkup = useRecommended ? recommendedMarkup : customMarkup;
+
+  if (rawUnitRrp > 0) {
+    const impliedMarkup = costIncVat > 0 ? +(((rawUnitRrp / costIncVat) - 1) * 100).toFixed(1) : 0;
+    return {
+      retailPrice: +rawUnitRrp.toFixed(2),
+      costIncVat,
+      recommendedMarkup,
+      appliedMarkup: impliedMarkup,
+      priceSource: "Official RRP"
+    };
+  }
+
+  const calculatedSell = +(costIncVat * (1 + appliedMarkup / 100)).toFixed(2);
+  return {
+    retailPrice: calculatedSell,
+    costIncVat,
+    recommendedMarkup,
+    appliedMarkup,
+    priceSource: useRecommended ? `Auto-Calc (${appliedMarkup}% Rec.)` : `Manual-Calc (${appliedMarkup}%)`
+  };
+}
+
+// Combine Step 1 (Pack/Length/Volume Split) + Step 2 (VAT & Markup Pricing)
+function normalizeAndPriceItem(item, marginOptions = {}) {
   const detected = detectWholesaleUnit(item.title, item.webDescription, item.sku, item.packQty);
   const packQty = detected.qty;
-  const rawCost = Number(item.cost || 0);
-  const rawRrp = Number(item.rrp || 0);
+  const rawNetCost = Number(item.cost || 0);
+  const rawDistributorRrp = Number(item.rrp || 0);
 
-  const unitCost = packQty > 1 ? +(rawCost / packQty).toFixed(2) : rawCost;
-  const unitRrp = packQty > 1 && rawRrp > 0 ? +(rawRrp / packQty).toFixed(2) : rawRrp;
+  const unitNetCost = packQty > 1 ? +(rawNetCost / packQty).toFixed(2) : rawNetCost;
+  const unitOfficialRrp = packQty > 1 && rawDistributorRrp > 0
+    ? +(rawDistributorRrp / packQty).toFixed(2)
+    : rawDistributorRrp;
+
+  const pricing = calculatePricing(unitNetCost, unitOfficialRrp, marginOptions);
 
   let normalizedTitle = String(item.title || "").trim();
   if (detected.unitType === "Per Metre" && !/\[per metre\]/i.test(normalizedTitle)) {
@@ -133,19 +174,25 @@ function normalizePackItem(item) {
 
   const autoTags = [item.tags];
   if (packQty > 1) autoTags.push(`Split-${detected.unitType.replace(/\s+/g, "-")}`);
+  if (pricing.priceSource !== "Official RRP") autoTags.push(`Markup-${pricing.appliedMarkup}pct`);
 
   return {
     ...item,
     title: normalizedTitle,
     barcode: cleanBarcode(item.barcode),
-    originalPackCost: rawCost,
+    originalPackCost: rawNetCost,
     detectedPackQty: packQty,
     detectedUnitType: detected.unitType,
     detectedRuleMatched: detected.ruleMatched,
-    cost: unitCost,
-    rrp: unitRrp,
+    cost: unitNetCost,
+    costIncVat: pricing.costIncVat,
+    rrp: pricing.retailPrice,
+    recommendedMarkup: pricing.recommendedMarkup,
+    appliedMarkup: pricing.appliedMarkup,
+    priceSource: pricing.priceSource,
     tags: autoTags.filter(Boolean).join(" | "),
-    packSplitApplied: packQty > 1
+    packSplitApplied: packQty > 1,
+    timestamp: new Date().toISOString()
   };
 }
 
@@ -183,18 +230,48 @@ function buildSaledockCSV(items) {
   return [headers.join(","), ...rows].join("\r\n");
 }
 
+// Step 2C: Build Audit Log CSV
+function buildAuditLogCSV(logs) {
+  const headers = [
+    "Timestamp", "Supplier", "SKU", "Title", "RawPackNetCost", "DetectedQty",
+    "UnitType", "RuleMatched", "UnitNetCost", "UnitCostIncVAT",
+    "RecommendedMarkupPct", "AppliedMarkupPct", "FinalSellRRP", "PriceSource"
+  ];
+
+  const escapeCsv = (val) => {
+    const s = val === null || val === undefined ? "" : String(val);
+    return `"${s.replace(/"/g, '""')}"`;
+  };
+
+  const rows = logs.map((entry) => [
+    entry.timestamp, entry.supplier, entry.sku, entry.title,
+    entry.originalPackCost, entry.detectedPackQty, entry.detectedUnitType,
+    entry.detectedRuleMatched, entry.cost, entry.costIncVat,
+    entry.recommendedMarkup, entry.appliedMarkup, entry.rrp, entry.priceSource
+  ].map(escapeCsv).join(","));
+
+  return [headers.join(","), ...rows].join("\r\n");
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     const db = await openDB();
 
     if (msg.type === "SAVE_SKIMMED_ITEMS") {
-      const tx = db.transaction(STORE_SKIMMED, "readwrite");
-      const store = tx.objectStore(STORE_SKIMMED);
+      const tx = db.transaction([STORE_SKIMMED, STORE_AUDIT], "readwrite");
+      const productStore = tx.objectStore(STORE_SKIMMED);
+      const auditStore = tx.objectStore(STORE_AUDIT);
+      const processed = [];
+
       for (const rawItem of msg.items || []) {
-        const cleanItem = normalizePackItem(rawItem);
-        if (cleanItem.sku) store.put(cleanItem);
+        const cleanItem = normalizeAndPriceItem(rawItem, msg.marginOptions || {});
+        if (cleanItem.sku) {
+          productStore.put(cleanItem);
+          auditStore.add(cleanItem);
+          processed.push(cleanItem);
+        }
       }
-      tx.oncomplete = () => sendResponse({ ok: true });
+      tx.oncomplete = () => sendResponse({ ok: true, processed });
       return;
     }
 
@@ -205,9 +282,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return;
     }
 
+    if (msg.type === "GET_AUDIT_LOGS") {
+      const tx = db.transaction(STORE_AUDIT, "readonly");
+      const req = tx.objectStore(STORE_AUDIT).getAll();
+      req.onsuccess = () => sendResponse({ ok: true, logs: req.result || [] });
+      return;
+    }
+
     if (msg.type === "CLEAR_SKIMMED_ITEMS") {
       const tx = db.transaction(STORE_SKIMMED, "readwrite");
       tx.objectStore(STORE_SKIMMED).clear();
+      tx.oncomplete = () => sendResponse({ ok: true });
+      return;
+    }
+
+    if (msg.type === "CLEAR_AUDIT_LOGS") {
+      const tx = db.transaction(STORE_AUDIT, "readwrite");
+      tx.objectStore(STORE_AUDIT).clear();
       tx.oncomplete = () => sendResponse({ ok: true });
       return;
     }
@@ -217,6 +308,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const req = tx.objectStore(STORE_SKIMMED).getAll();
       req.onsuccess = () => {
         const csv = buildSaledockCSV(req.result || []);
+        sendResponse({ ok: true, csv, count: (req.result || []).length });
+      };
+      return;
+    }
+
+    if (msg.type === "EXPORT_AUDIT_CSV") {
+      const tx = db.transaction(STORE_AUDIT, "readonly");
+      const req = tx.objectStore(STORE_AUDIT).getAll();
+      req.onsuccess = () => {
+        const csv = buildAuditLogCSV(req.result || []);
         sendResponse({ ok: true, csv, count: (req.result || []).length });
       };
       return;
