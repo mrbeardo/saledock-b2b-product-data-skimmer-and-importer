@@ -3,6 +3,14 @@
 
 An open-source Chrome and Edge (Manifest V3) extension built for **Saledock / Celerant ONE** retailers to automate B2B supplier catalogue extraction, CSV cleanup, variant consolidation, and back-office publishing.
 
+## Support This Project
+
+If this extension saves you time managing your Saledock catalogue, you can support ongoing development and maintenance via [PayPal.Me](https://www.paypal.com/paypalme/leelicycles). Every contribution is greatly appreciated!
+
+## Disclaimer
+
+Provided as-is under the MIT License for authorized retailer use only. Users are responsible for complying with their suppliers' and Saledock's terms of service, as well as applicable copyright and database rights.
+
 ## Key Features
 * **Universal B2B Catalogue Crawler:** Extracts product titles, SKUs, barcodes, trade/RRP pricing, stock levels, rich HTML descriptions, and high-resolution image galleries across multi-page supplier portals.
 * **IndexedDB Deduplication & Barcode Repair:** Matches skimmed items against your existing Saledock `ProductExport` and `StockExport` CSVs to prevent duplicate entries and automatically repairs scientific-notation barcodes (e.g. `2.1E+11`).
