@@ -1,59 +1,28 @@
-================================================================================
+# Changelog
 
-SALEDOCK B2B PRODUCT DATA SKIMMER & IMPORTER - CHANGELOG
+All notable changes to **Saledock B2B Product Data Skimmer & Importer** are documented in this file.
 
-Repository: https://github.com/mrbeardo/saledock-b2b-product-data-skimmer-and-importer
+## [v1.0.2] - 2026-11-15 (Build 2026.11.15.4)
 
-================================================================================
+### Added
+* **The Cycle Division WooCommerce B2B Adapter:** Automatically detects `thecycledivision.com` and extracts SKUs, titles, net trade prices, stock counts, brands, categories, product URLs, and images from category grids while ignoring promotional carousels.
+* **Smart Bulk Pack, Length & Volume Auto-Detection (`detectWholesaleUnit`):**
+  * Automatically splits multi-packs and workshop boxes such as `(50/BOX)`, `144/Box`, `Box of 10`, `Pack of 25`, `10 pack`, `2pcs`, `x 20`, and `Gross` (144 units) into single retail units.
+  * Automatically splits bulk cable/housing/tape lengths (`10m`, `30m`, `50m`, `100m`, `25m Reel`, `30m Coil`) into per-metre pricing and appends `[Per Metre]`, while ignoring `mm` dimensions (`40mm`, `180mm`).
+  * Automatically splits bulk workshop fluids and pastes (`1L`, `2L`, `5L`, `1000ml`, `2000ml`) into `100ml` retail/workshop units and appends `[Per 100ml]`.
+* **Missing-RRP Retail Pricing Calculator:**
+  * Preserves official distributor RRPs whenever displayed on the page.
+  * Calculates missing or zero RRPs using `(Unit Net Cost * 1.20 VAT) * (1 + Markup % / 100)`.
+  * Added **Recommended Markup Tiers (33%–56%)** based on single-unit net cost (`<£3`: 56%, `£3–£9.99`: 50%, `£10–£29.99`: 42%, `£30–£74.99`: 36%, `£75+`: 33%) alongside a custom markup override option in `popup.html`.
+* **Persistent Pricing & Pack Audit Log:** Upgraded IndexedDB (`DB_VERSION = 2`) with an `auditLogs` object store recording timestamps, original pack cost, detected pack quantities, matched rules, VAT-inclusive unit cost, applied markup %, and RRP source (`Official RRP` vs `Auto-Calc` / `Manual-Calc`), with one-click CSV export.
 
+### Changed
+* Updated `popup.html` and `popup.js` with live supplier adapter badges, markup mode controls, and an instant sample calculation preview box after skimming.
 
+---
 
-[v1.0.1] - 2026-11-15
+## [v1.0.1] - 2026-11-15 (Build 2026.11.15.2)
 
----------------------
-
-ADDED:
-
-- Automatic Export Tagging: Added a `Tags` column to the Saledock CSV export 
-
-  (`buildSaledockCSV` in `extension/background.js`) that automatically appends 
-
-  `B2B-Skimmer` to every exported product row for easy filtering and bulk 
-
-  management in the Saledock back office.
-
-
-
-CHANGED:
-
-- Pipe-Delimited Multi-Value Formatting: Updated multi-image and multi-tag 
-
-  fields to join using Saledock's `" | "` (space-pipe-space) delimiter standard.
-
-
-
-[v1.0.0] - 2026-11-15
-
----------------------
-
-INITIAL RELEASE:
-
-- Manifest V3 Chrome/Edge extension architecture.
-
-- Local IndexedDB storage engine (`SaledockSkimmerDB`) for high-capacity 
-
-  product queuing and deduplication.
-
-- Dual-mode B2B product extractor supporting Schema.org JSON-LD blocks and 
-
-  generic DOM product card fallbacks.
-
-- Automated scientific-notation barcode repair and wholesale multi-pack unit 
-
-  cost/RRP splitting.
-
-- Saledock `ProductImportTemplate` CSV generator and back-office OOSP/Publish 
-
-  toggle macro.
-
-================================================================================
+### Added
+* IndexedDB storage (`SaledockSkimmerDB`) for persistent, deduplicated product storage keyed by SKU.
+* Scientific-notation barcode repair (`cleanBarcode`) to fix spreadsheet-corrupted EAN/UPC codes (e.g., `2.1E+11` -> `210000000000`).
