@@ -1,5 +1,5 @@
 // Saledock B2B Product Data Skimmer & Importer - Background Service Worker
-// Version: v1.0.0 (Build 2026.11.15.1)
+// Version: v1.0.1 (Build 2026.11.15.2)
 // License: MIT | Co-authored by Benjamin Goddard & Gemini
 
 const DB_NAME = "SaledockSkimmerDB";
@@ -52,7 +52,7 @@ function normalizePackItem(item) {
   };
 }
 
-// Map normalized items to Saledock's 33-column ProductImportTemplate CSV format
+// Map normalized items to Saledock's ProductImportTemplate CSV format
 function buildSaledockCSV(items) {
   const headers = [
     "ProductCode", "Barcode", "Title", "Brand", "Category", "SubCategory",
@@ -60,7 +60,7 @@ function buildSaledockCSV(items) {
     "ReorderLevel", "ReorderQty", "Weight", "Length", "Width", "Height",
     "Option1Name", "Option1Value", "Option2Name", "Option2Value",
     "Option3Name", "Option3Value", "ShortDescription", "WebDescription",
-    "MetaTitle", "MetaDescription", "URL", "Images", "Visible", "NonStock", "Featured"
+    "MetaTitle", "MetaDescription", "URL", "Images", "Visible", "NonStock", "Featured", "Tags"
   ];
 
   const escapeCsv = (val) => {
@@ -70,6 +70,7 @@ function buildSaledockCSV(items) {
 
   const rows = items.map((p) => {
     const visible = Boolean(p.visible);
+    const tags = [p.tags, "B2B-Skimmer"].filter(Boolean).join(" | ");
     return [
       p.sku, p.barcode, p.title, p.brand, p.category, p.subCategory,
       p.supplier, p.cost, p.rrp, p.salePrice || "", p.taxCode || "T1", p.stock || 0,
@@ -77,8 +78,8 @@ function buildSaledockCSV(items) {
       p.option1Name || "", p.option1Value || "", p.option2Name || "", p.option2Value || "",
       "", "", p.shortDescription || "", p.webDescription || "",
       p.metaTitle || p.title, p.metaDescription || "", p.urlSlug || "",
-      Array.isArray(p.images) ? p.images.join("|") : (p.images || ""),
-      visible ? "TRUE" : "FALSE", "FALSE", "FALSE"
+      Array.isArray(p.images) ? p.images.join(" | ") : (p.images || ""),
+      visible ? "TRUE" : "FALSE", "FALSE", "FALSE", tags
     ].map(escapeCsv).join(",");
   });
 
